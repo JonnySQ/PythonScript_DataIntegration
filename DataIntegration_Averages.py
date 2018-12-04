@@ -1,8 +1,8 @@
 from netCDF4 import Dataset
 import os
+import numpy as np
 
-
-#name file to represent average values ("metavg")
+#name file to represent average values ("met" ==> "metavg")
 def makeNameAverage(filename):
     
     newName = ""
@@ -15,88 +15,102 @@ def makeNameAverage(filename):
         
     return newName
 
-
-#-------- Main begins here --------#
-
-#Define file or directory to be processed
-#TODO: either predefine file, or prompt user for it
-inputPath = "./Input_Data/"
-outputPath = "./Output_Data/"
-
-files = os.listdir(inputPath)
-
-#if its a directory do this
-for name in files:
-    print(name)
+#finds 5 minute averages
+def findAverages(inputPath, outputPath):
     
-#debugging
-#if 1 == 1:
-    #name = "sgpmetE13.b1.20181001.000000.cdf"
+    files = os.listdir(inputPath)
     
-    #load input data
-    dataset = Dataset(inputPath+name)
-    newName = makeNameAverage(name)
-    newDataset = Dataset(outputPath+newName, 'w', format='NETCDF4_CLASSIC')
-    
-    
-    #Create dimensions and variables for newDataset
-    
-    #newTime = newDataset.createDimension('time', 1440)
-    #newDataset.createVariable('atmospheric_pressure',_,_)
-    #newDataset.createVariable('temp_mean',_,_)
-    
-    #identify dimensions debugging
-    #print(dataset.dimensions.keys())
-    #time_dimension = dataset.dimensions['time']
-    #print(time_dimension)
-    
-    #identify variables debugging
-    #print(dataset.variables.keys())
-    
-    #extract input data
-    atmos_pressure = dataset.variables['atmos_pressure']
-    temp_mean      = dataset.variables['temp_mean']
-    base_time      = dataset.variables['base_time']   #different each day
-    time           = dataset.variables['time']        #same as time offset?
-    
-    print (len(time))
-    print(atmos_pressure)
-    print(temp_mean)
-    
-    i = 0
-    
-    #find averages
-    while i < len(atmos_pressure):
-        interval = time[i] + 300
-        start = time[i]
-        current = start
-        occ_count = 0
-        find_atmos = 0
-        find_temp = 0
+    #go through each file in directory
+    for name in files:
+        print(name)
         
-        while current < interval and i < len(atmos_pressure):
-            find_atmos += atmos_pressure[i]
-            find_temp += temp_mean[i]
+        #load input data
+        dataset = Dataset(inputPath+name)
+        newName = makeNameAverage(name)
+        newDataset = Dataset(outputPath+newName, 'w', format='NETCDF4_CLASSIC')
+        
+        #create dimensions
+        newDataset.createDimension('time', None)
+        
+        #create variables
+        newDataset.createVariable('atmospheric_pressure', np.float32, 'time')
+        newDataset.createVariable('mean_temperature', np.float32, 'time')
+        newDataset.createVariable('time', np.float64, 'time')
+        newDataset.createVariable('base_time', np.int32)
+        
+        #extract input data
+        atmos_pressure = dataset.variables['atmos_pressure']
+        temp_mean      = dataset.variables['temp_mean']
+        base_time      = dataset.variables['base_time']   #different each day
+        time           = dataset.variables['time']        #same as time offset?
+        
+        #set up attributes
+        #atmospheric pressure
+        newAtmos = newDataset.variables['atmospheric_pressure']
+        newAtmos.long_name = atmos_pressure.long_name
+        newAtmos.units = atmos_pressure.units
+        newAtmos.valid_min = atmos_pressure.valid_min
+        newAtmos.valid_max = atmos_pressure.valid_max
+        newAtmos.valid_delta = atmos_pressure.valid_delta
+        newAtmos.missing_value = atmos_pressure.missing_value
+        
+        #mean temperature
+        newTemp = newDataset.variables['mean_temperature']
+        newTemp.long_name = temp_mean.long_name
+        newTemp.units = temp_mean.units
+        newTemp.valid_min = temp_mean.valid_min
+        newTemp.valid_max = temp_mean.valid_max
+        newTemp.valid_delta = temp_mean.valid_delta
+        newTemp.missing_value = temp_mean.missing_value
+        
+        #base time
+        newBaseTime = newDataset.variables['base_time']
+        newBaseTime.string = base_time.string
+        newBaseTime.long_name = base_time.long_name
+        newBaseTime.units = base_time.units
+        
+        #time variable
+        newTime = newDataset.variables['time']
+        newTime.long_name = time.long_name
+        newTime.units = time.units
+        newTime.standard_name = time.standard_name
+        
+        #loop variables
+        i = 0
+        j = 0
+        
+        #find averages
+        while i < len(atmos_pressure):
+            interval = time[i] + 300
+            start = time[i]
+            current = start
+            occ_count = 0       #number of occurances
+            find_atmos = 0      #used to find 5 min avg
+            find_temp = 0       #used to find 5 min avg
             
-            occ_count += 1
-            i += 1
-            if i < len(atmos_pressure):
-                current = time[i]
-            else:
-                break
+            while current < interval and i < len(atmos_pressure):
+                find_atmos += atmos_pressure[i]
+                find_temp += temp_mean[i]
                 
-        if find_atmos != 0:
-            #resulting numbers to be recorded
-            avg_atmos = find_atmos / occ_count
-            avg_temp = find_temp / occ_count
-            print(base_time[i], start, avg_atmos, avg_temp)
-    
-    #record averages
-    
-    #write averages and associated variable to new dataset
-    
-    #write averages and associated variables to file
-    
-    #do this for all files
-    
-    
+                occ_count += 1
+                i += 1
+                if i < len(atmos_pressure):
+                    current = time[i]
+                else:
+                    break
+                    
+            if find_atmos != 0:
+                #resulting numbers to be recorded
+                avg_atmos = find_atmos / occ_count
+                avg_temp = find_temp / occ_count
+                
+                newAtmos[j] = avg_atmos
+                newTemp[j] = avg_temp
+                newBaseTime[j] = base_time[i]
+                newTime[j] = start
+                j += 1
+        
+    #close files when finished
+    dataset.close()
+    newDataset.close()
+    return 1
